@@ -7,29 +7,38 @@ namespace Infinite_model_importer
 {
     internal class Program
     {
+
+
+        // refer to https://github.com/Gravemind2401/Reclaimer/blob/master/Reclaimer.Blam/Resources/Halo5VertexBuffer.xml
+        // for any inquiries regarding halo 5 buffer formats
+
         static void Main(string[] args) 
         {
             Console.WriteLine("Hello, World!");
-            convert_model_to_tag("C:\\Users\\Joe bingle\\Downloads\\model testing\\shrek3.obj",
-                                 "C:\\Users\\Joe bingle\\Downloads\\model testing\\template2.rtgo",
-                                 0x24832954,
-                                 "C:\\Users\\Joe bingle\\Downloads\\model testing\\shrek3.rtgo");
+            convert_model_to_tag("C:\\Users\\ct770\\Downloads\\tag testing\\Untitled.obj",
+                                 "C:\\Users\\ct770\\Downloads\\tag testing\\merged\\tripodmesh_og",
+                                 "C:\\Users\\ct770\\Downloads\\tag testing\\merged\\tripodmesh_og_res_0",
+                                 0x0,
+                                 "C:\\Users\\ct770\\Downloads\\tag testing\\result_tag");
         }
 
-        static tag load_tag(string file)
+        static tag load_tag(string file, string res_template)
         {
             if (!File.Exists(file)) throw new Exception("file does not exist");
+            if (!File.Exists(res_template)) throw new Exception("res_template does not exist");
             byte[] file_bytes = File.ReadAllBytes(file);
+            byte[] res_bytes = File.ReadAllBytes(res_template);
 
-            tag test = new tag(new List<KeyValuePair<byte[], bool>>()); // apparently we do NOT support null, despite declaring it as nullable (this is for compiling at least)
+            var testing = new List<KeyValuePair<byte[], bool>>();
+            testing.Add(new (res_bytes, true));
+            tag test = new tag(testing); // apparently we do NOT support null, despite declaring it as nullable (this is for compiling at least)
             if (!test.Load_tag_file(file_bytes)) throw new Exception("failed to load tag");
             return test;
         }
-        static void convert_model_to_tag(string input_model_path, string input_template_tag, uint new_tagid, string output_tag_path){
+        static void convert_model_to_tag(string input_model_path, string input_template_tag, string input_res_tag, uint new_tagid, string output_tag_path){
             // load the template tag
-            tag rtgo_tag = load_tag(input_template_tag);
-            rtgo_tag.set_tagID(new_tagid); // we have to update the tagID, as we're going to have the template set to -1
-
+            tag rtgo_tag = load_tag(input_template_tag, input_res_tag);
+            //rtgo_tag.set_tagID(new_tagid); // we have to update the tagID, as we're going to have the template set to -1
 
 
             // load the 3d model
@@ -64,10 +73,11 @@ namespace Infinite_model_importer
 
 
                 // copy over base mesh info
-                rtgo_tag.set_number("render geometry.meshes[0].LOD render data[0].parts[0].index count", indices.Length.ToString());
-                rtgo_tag.set_number("render geometry.meshes[0].LOD render data[0].parts[0].budget vertex count", mesh.VertexCount.ToString());
-                // raytracing metadata
-                rtgo_tag.set_number("render geometry.mesh package.mesh resource groups[0].mesh resource.raytracing metadata[0].mesh part metadata[0].index count", indices.Length.ToString());
+                rtgo_tag.set_number("render geometry*\\\\meshes*\\0\\LOD render data\\0\\parts*\\0\\index count*", indices.Length.ToString());
+                rtgo_tag.set_number("render geometry*\\\\meshes*\\0\\LOD render data\\0\\parts*\\0\\budget vertex count", mesh.VertexCount.ToString());
+
+                rtgo_tag.set_number("render geometry*\\\\meshes*\\0\\LOD render data\\0\\subparts*\\0\\index count*", indices.Length.ToString());
+                rtgo_tag.set_number("render geometry*\\\\meshes*\\0\\LOD render data\\0\\subparts*\\0\\budget vertex count", mesh.VertexCount.ToString());
 
 
                 // preprocess vertex positions to find largest distance so we can normalize
@@ -94,11 +104,11 @@ namespace Infinite_model_importer
                     if (v.Z < bound_z_minus) bound_z_minus = v.Z;
                 }
                 // update compression & per part data
-                rtgo_tag.set_float3("Per Mesh Data[0].Bounds min", new(bound_x, bound_y, bound_z));
-                rtgo_tag.set_float3("Per Mesh Data[0].Bounds max", new(bound_x_minus, bound_y_minus, bound_z_minus));
+                //rtgo_tag.set_float3("Per Mesh Data[0].Bounds min", new(bound_x, bound_y, bound_z));
+                //rtgo_tag.set_float3("Per Mesh Data[0].Bounds max", new(bound_x_minus, bound_y_minus, bound_z_minus));
 
-                rtgo_tag.set_float3("render geometry.compression info[0].position bounds 0", new(bound_x, bound_x_minus, bound_y));
-                rtgo_tag.set_float3("render geometry.compression info[0].position bounds 1", new(bound_y_minus, bound_z, bound_z_minus));
+                rtgo_tag.set_float3("render geometry*\\\\compression info*\\0\\position bounds 0*", new(bound_x_minus, bound_x, bound_y_minus));
+                rtgo_tag.set_float3("render geometry*\\\\compression info*\\0\\position bounds 1*", new(bound_y, bound_z_minus, bound_z));
 
                 // preprocess UV bounds
                 float uv_bound_x = 0.0f;
@@ -119,113 +129,122 @@ namespace Infinite_model_importer
                     if (v.X < uv_bound_x_minus) uv_bound_x_minus = v.X;
                     if (v.Y > uv_bound_y)       uv_bound_y = v.Y;
                     if (v.Y < uv_bound_y_minus) uv_bound_y_minus = v.Y;
-                    if (v.Z > uv_bound_z)       uv_bound_z = v.Z;
-                    if (v.Z < uv_bound_z_minus) uv_bound_z_minus = v.Z;
+                    //if (v.Z > uv_bound_z)       uv_bound_z = v.Z;
+                    //if (v.Z < uv_bound_z_minus) uv_bound_z_minus = v.Z;
                 }
 
+                rtgo_tag.set_float2("render geometry*\\\\compression info*\\0\\texcoord bounds 0*", new(uv_bound_x, uv_bound_x_minus));
+                rtgo_tag.set_float2("render geometry*\\\\compression info*\\0\\texcoord bounds 1*", new(uv_bound_y, uv_bound_y_minus));
 
                 // now we need to start compiling the tag
                 // open stream writer to start writing out the chunk data
-                int current_offset = 0;
-                var vertex_block = rtgo_tag.get_tagblock("render geometry.mesh package.mesh resource groups[0].mesh resource.pc vertex buffers");
-                var index_block = rtgo_tag.get_tagblock("render geometry.mesh package.mesh resource groups[0].mesh resource.pc index buffers");
 
-                using (FileStream fs = new FileStream(output_tag_path + "_res_0", FileMode.Create))
-                using (BinaryWriter bw = new BinaryWriter(fs)){
-                    // start with vertex positions (8 bytes wide)
-                    current_offset += fill_in_buffer_details(rtgo_tag, mesh.VertexCount, 8, current_offset, vertex_block, 0);
-                    foreach (var v in mesh.Vertices){
+                using (var stream = new MemoryStream())
+                using (var bw = new BinaryWriter(stream)){
+                    for (int j = 0; j < mesh.Vertices.Count; j++){
+                        var vert = mesh.Vertices[j];
+
+
+                        // start with vertex positions (8 bytes wide)
                         // normalize & pack each vector
-                        float normalized_x = ((v.X / highest_distance) + 1) / 2; 
+                        float normalized_x = ((vert.X / highest_distance) + 1) / 2; 
                         ushort packed_x = (ushort)(normalized_x * 0xffff);
                         bw.Write(packed_x);
                         float unpacked_x = (((float)(ushort)packed_x / 0xffff) * 2.0f) - 1.0f;
 
-                        float normalized_y = ((v.Y / highest_distance) + 1) / 2;
+                        float normalized_y = ((vert.Y / highest_distance) + 1) / 2;
                         ushort packed_y = (ushort)(normalized_y * 0xffff);
                         bw.Write(packed_y);
                         float unpacked_y = (((float)(ushort)packed_y / 0xffff) * 2.0f) - 1.0f;
 
-                        float normalized_z = ((v.Z / highest_distance) + 1) / 2;
+                        float normalized_z = ((vert.Z / highest_distance) + 1) / 2;
                         ushort packed_z = (ushort)(normalized_z * 0xffff);
                         bw.Write(packed_z);
                         float unpacked_z = (((float)(ushort)packed_z / 0xffff) * 2.0f) - 1.0f;
-
                         bw.Write(new byte[2] {0,0}); // pad out the last guy?
+
+                        // UV0s (4 bytes wide)
+                        if (!invalid_UV0){
+                            var uv = mesh.TextureCoordinateChannels[0][j];
+                            // normalize & pack each vector // NOTE: we may have to prevent the endianness flipping when writing the bytes?
+                            float uv_normalized_x = ((uv.X / highest_uv0_distance) + 1) / 2;
+                            bw.Write((short)(uv_normalized_x * 0xffff));
+
+                            float uv_normalized_y = ((uv.Y / highest_uv0_distance) + 1) / 2;
+                            bw.Write((short)(uv_normalized_y * 0xffff));
+                        }
+                        else bw.Write(0u);
+
+                        // normals (4 bytes wide)
+                        if (!invalid_normals){
+                            var normal = mesh.Normals[j];
+                            // we have to pack this all into a single int to write
+                            // make sure the normals work how we think they work
+                            if (normal.X > 1.0f || normal.X < -1.0f || normal.Y > 1.0f || normal.Y < -1.0f || normal.Z > 1.0f || normal.Z < -1.0f) throw new Exception("out of bounds normal value?");
+                            ushort normal_packed_x = (ushort)(((normal.X + 1.0f) / 2.0f) * 0x3FF); // uhh i think the conversion will be fine here
+                            ushort normal_packed_y = (ushort)(((normal.Y + 1.0f) / 2.0f) * 0x3FF);
+                            ushort normal_packed_z = (ushort)(((normal.Z + 1.0f) / 2.0f) * 0x3FF);
+
+                            // this is how they're packed
+                            // buffer[(i * 3)] = ((float)(block & 0x3ff) / 1023u - 0.5f) * 2;
+
+                            uint packed = ((uint)normal_packed_x & 0x3ff) | (((uint)normal_packed_y & 0x3ff) << 10) | (((uint)normal_packed_z & 0x3ff) << 20);
+                            bw.Write(packed);
+                        }
+                        else bw.Write(0u);
+
+                        // tangents (4 bytes wide)
+                        //if (!invalid_tangents){
+                        //    var tangent = mesh.Tangents[j];
+                        //    // make sure tangents work how we think they work
+                        //    if (tangent.X > 1.0f || tangent.X < -1.0f || tangent.Y > 1.0f || tangent.Y < -1.0f || tangent.Z > 1.0f || tangent.Z < -1.0f) throw new Exception("out of bounds normal value?");
+                        //    bw.Write((byte)(((tangent.X + 1.0f) / 2.0f) * 0xFF));
+                        //    bw.Write((byte)(((tangent.Y + 1.0f) / 2.0f) * 0xFF));
+                        //    bw.Write((byte)(((tangent.Z + 1.0f) / 2.0f) * 0xFF));
+                        //}
+                        //else 
+                            bw.Write(0u);
+
+                        // bytecolors (4 bytes wide)
+                        //if (!invalid_colors) { 
+                        //    var color = mesh.VertexColorChannels[0][j];
+                        //    bw.Write((byte)(color.A * 255));
+                        //    bw.Write((byte)(color.R * 255));
+                        //    bw.Write((byte)(color.G * 255));
+                        //    bw.Write((byte)(color.B * 255));
+                        //}
+                        //else 
+                            bw.Write(4278190080u);
+
                     }
-                    // UV0s (4 bytes wide)
-                    current_offset += fill_in_buffer_details(rtgo_tag, mesh.VertexCount, 4, current_offset, vertex_block, 1);
-                    if (invalid_UV0) for (int p = 0; p < mesh.VertexCount; p++)bw.Write(0);
-                    else foreach (var v in mesh.TextureCoordinateChannels[0]){
-                        // normalize & pack each vector // NOTE: we may have to prevent the endianness flipping when writing the bytes?
-                        float normalized_x = ((v.X / highest_uv0_distance) + 1) / 2;
-                        bw.Write((short)(normalized_x * 0xffff));
-
-                        float normalized_y = ((v.Y / highest_uv0_distance) + 1) / 2;
-                        bw.Write((short)(normalized_y * 0xffff));
-                    }
-
-                    // normals (4 bytes wide)
-                    current_offset += fill_in_buffer_details(rtgo_tag, mesh.VertexCount, 4, current_offset, vertex_block, 2);
-                    if (invalid_normals) for (int p = 0; p < mesh.VertexCount; p++) bw.Write(0);
-                    else foreach (var v in mesh.Normals){
-                        // we have to pack this all into a single int to write
-                        // make sure the normals work how we think they work
-                        if (v.X > 1.0f || v.X < -1.0f || v.Y > 1.0f || v.Y < -1.0f || v.Z > 1.0f || v.Z < -1.0f) throw new Exception("out of bounds normal value?");
-                        ushort packed_x = (ushort)( ((v.X + 1.0f) / 2.0f) * 0x3FF); // uhh i think the conversion will be fine here
-                        ushort packed_y = (ushort)( ((v.Y + 1.0f) / 2.0f) * 0x3FF); 
-                        ushort packed_z = (ushort)( ((v.Z + 1.0f) / 2.0f) * 0x3FF);
-
-                        // this is how they're packed
-                        // buffer[(i * 3)] = ((float)(block & 0x3ff) / 1023u - 0.5f) * 2;
-
-                        uint packed = ((uint)packed_x & 0x3ff) | (((uint)packed_y & 0x3ff) << 10) | (((uint)packed_z & 0x3ff) << 20);
-                        bw.Write(packed);
-                    }
-
-                    // tangents (4 bytes wide)
-                    current_offset += fill_in_buffer_details(rtgo_tag, mesh.VertexCount, 4, current_offset, vertex_block, 3);
-                    if (invalid_tangents) for (int p = 0; p < mesh.VertexCount; p++) bw.Write(0);
-                    else foreach (var v in mesh.Tangents){
-                        // make sure tangents work how we think they work
-                        if (v.X > 1.0f || v.X < -1.0f ||  v.Y > 1.0f || v.Y < -1.0f || v.Z > 1.0f || v.Z < -1.0f) throw new Exception("out of bounds normal value?");
-                        bw.Write((byte)( ((v.X + 1.0f) / 2.0f) * 0xFF));
-                        bw.Write((byte)( ((v.Y + 1.0f) / 2.0f) * 0xFF));
-                        bw.Write((byte)( ((v.Z + 1.0f) / 2.0f) * 0xFF));
-                    }
-
-                    // bytecolors (4 bytes wide)
-                    current_offset += fill_in_buffer_details(rtgo_tag, mesh.VertexCount, 4, current_offset, vertex_block, 4);
-                    if (invalid_colors) for (int p = 0; p < mesh.VertexCount; p++) bw.Write(0);
-                    else foreach (var v in mesh.VertexColorChannels[0]){
-                        bw.Write((byte)(v.A * 255));
-                        bw.Write((byte)(v.R * 255));
-                        bw.Write((byte)(v.G * 255));
-                        bw.Write((byte)(v.B * 255));
-                    }
-
-                    // and then we finish with the index buffers
-                    current_offset += fill_in_buffer_details(rtgo_tag, indices.Length, 4, current_offset, index_block, 0);
-                    foreach (var v in indices) 
-                        bw.Write(v);
+                    byte[] data = stream.ToArray();
+                    rtgo_tag.set_number("render geometry*\\\\mesh package*!\\\\mesh resource groups*!\\0\\mesh resource!*\\\\pc vertex buffers*\\0\\count*", mesh.VertexCount.ToString());
+                    rtgo_tag.set_number("render geometry*\\\\mesh package*!\\\\mesh resource groups*!\\0\\mesh resource!*\\\\pc vertex buffers*\\0\\d3dbuffer*\\\\byte width*", data.Length.ToString());
+                    rtgo_tag.set_datablock("render geometry*\\\\mesh package*!\\\\mesh resource groups*!\\0\\mesh resource!*\\\\pc vertex buffers*\\0\\d3dbuffer*\\\\d3d buffer*", data);
                 }
 
-                // we can now fill in the buffer size details
-                rtgo_tag.set_number("render geometry.mesh package.mesh resource groups[0].mesh resource.Streaming Chunks[0].buffer end", current_offset.ToString());
-                rtgo_tag.set_number("render geometry.mesh package.mesh resource groups[0].mesh resource.Streaming Buffers[0].buffer size", current_offset.ToString());
 
+                using (var stream1 = new MemoryStream())
+                using (var bw1 = new BinaryWriter(stream1))
+                {
+                    foreach (var v in indices)
+                        bw1.Write((ushort)v);
+
+                    byte[] data = stream1.ToArray();
+                    rtgo_tag.set_number("render geometry*\\\\mesh package*!\\\\mesh resource groups*!\\0\\mesh resource!*\\\\pc index buffers*\\0\\count*", indices.Length.ToString());
+                    rtgo_tag.set_number("render geometry*\\\\mesh package*!\\\\mesh resource groups*!\\0\\mesh resource!*\\\\pc index buffers*\\0\\d3dbuffer*\\\\byte width*", data.Length.ToString());
+                    rtgo_tag.set_datablock("render geometry*\\\\mesh package*!\\\\mesh resource groups*!\\0\\mesh resource!*\\\\pc index buffers*\\0\\d3dbuffer*\\\\d3d buffer*", data);
+                }
 
                 tag.compiled_tag output = rtgo_tag.compile();
                 // we aren't going to output resources with this, so we only need to worry about spitting out the main file
                 File.WriteAllBytes(output_tag_path, output.tag_bytes);
+                for (int j = 0; j < output.resource_bytes.Count; j++)
+                {
+                    File.WriteAllBytes(output_tag_path + "_res_" + j, output.resource_bytes[j]);
+                }
             }
 
-        }
-        static int fill_in_buffer_details(tag rtgo_tag, int entry_count, int entry_width, int current_offset, tag.tagdata_struct buffer_block, int buffer_index){
-            rtgo_tag.set_number("count", entry_count.ToString(), buffer_block.blocks[buffer_index], buffer_block.GUID);
-            rtgo_tag.set_number("offset", current_offset.ToString(), buffer_block.blocks[buffer_index], buffer_block.GUID);
-            rtgo_tag.set_number("d3dbuffer.byte width", (entry_width * entry_count).ToString(), buffer_block.blocks[buffer_index], buffer_block.GUID);
-            return entry_width * entry_count;
         }
     }
 }
