@@ -15,11 +15,17 @@ namespace Infinite_model_importer
         static void Main(string[] args) 
         {
             Console.WriteLine("Hello, World!");
-            convert_model_to_tag("C:\\Users\\ct770\\Downloads\\tag testing\\Untitled.obj",
-                                 "C:\\Users\\ct770\\Downloads\\tag testing\\merged\\tripodmesh_og",
-                                 "C:\\Users\\ct770\\Downloads\\tag testing\\merged\\tripodmesh_og_res_0",
-                                 0x0,
-                                 "C:\\Users\\ct770\\Downloads\\tag testing\\result_tag");
+            //convert_model_to_tag("C:\\Users\\ct770\\Downloads\\tag testing\\Untitled.obj",
+            //                     "C:\\Users\\ct770\\Downloads\\tag testing\\merged\\tripodmesh_og",
+            //                     "C:\\Users\\ct770\\Downloads\\tag testing\\merged\\tripodmesh_og_res_0",
+            //                     false,
+            //                     "C:\\Users\\ct770\\Downloads\\tag testing\\result_tag");
+
+            convert_model_to_tag("C:\\Users\\ct770\\Downloads\\tag testing\\h1magnum\\UNSC Weapons.fbx",
+                     "C:\\Users\\ct770\\Downloads\\tag testing\\h1magnum\\h1magnum",
+                     "C:\\Users\\ct770\\Downloads\\tag testing\\h1magnum\\h1magnum_res_0",
+                     true,
+                     "C:\\Users\\ct770\\Downloads\\tag testing\\h1magnum\\result_magnum_tag");
         }
 
         static tag load_tag(string file, string res_template)
@@ -35,7 +41,7 @@ namespace Infinite_model_importer
             if (!test.Load_tag_file(file_bytes)) throw new Exception("failed to load tag");
             return test;
         }
-        static void convert_model_to_tag(string input_model_path, string input_template_tag, string input_res_tag, uint new_tagid, string output_tag_path){
+        static void convert_model_to_tag(string input_model_path, string input_template_tag, string input_res_tag, bool has_bone_weighting, string output_tag_path){
             // load the template tag
             tag rtgo_tag = load_tag(input_template_tag, input_res_tag);
             //rtgo_tag.set_tagID(new_tagid); // we have to update the tagID, as we're going to have the template set to -1
@@ -72,6 +78,38 @@ namespace Infinite_model_importer
                 if (!invalid_colors && mesh.VertexColorChannels[0].Count != mesh.VertexCount)    throw new Exception("bad vertex colors count");
 
 
+
+                var vertexWeightCounts = new int[mesh.VertexCount];
+                // Validate bone weights
+                if (has_bone_weighting)
+                {
+                    for (int j = 0; j < mesh.Bones.Count; j++)
+                    {
+                        var bone = mesh.Bones[j];
+                        foreach (var weight in bone.VertexWeights)
+                        {
+                            if (weight.VertexID < 0 || weight.VertexID >= mesh.VertexCount)
+                                throw new Exception($"bone '{bone.Name}' references invalid vertex {weight.VertexID}");
+
+                            vertexWeightCounts[weight.VertexID] = j;
+                        }
+                    }
+
+                }
+
+
+
+                // node remapping
+
+                // 0 is good
+                // 2 is good
+                // whatever points to 04 should be 03 ? infact i believe these 2 need to be swapped around
+                for (int j = 0;  j < vertexWeightCounts.Length; j++){
+                    if (vertexWeightCounts[j] == 1) vertexWeightCounts[j] = 3;
+                    else if (vertexWeightCounts[j] == 3) vertexWeightCounts[j] = 4;
+                    else if (vertexWeightCounts[j] == 4) vertexWeightCounts[j] = 1;
+                }
+
                 // copy over base mesh info
                 rtgo_tag.set_number("render geometry*\\\\meshes*\\0\\LOD render data\\0\\parts*\\0\\index count*", indices.Length.ToString());
                 rtgo_tag.set_number("render geometry*\\\\meshes*\\0\\LOD render data\\0\\parts*\\0\\budget vertex count", mesh.VertexCount.ToString());
@@ -107,8 +145,10 @@ namespace Infinite_model_importer
                 //rtgo_tag.set_float3("Per Mesh Data[0].Bounds min", new(bound_x, bound_y, bound_z));
                 //rtgo_tag.set_float3("Per Mesh Data[0].Bounds max", new(bound_x_minus, bound_y_minus, bound_z_minus));
 
-                rtgo_tag.set_float3("render geometry*\\\\compression info*\\0\\position bounds 0*", new(bound_x_minus, bound_x, bound_y_minus));
-                rtgo_tag.set_float3("render geometry*\\\\compression info*\\0\\position bounds 1*", new(bound_y, bound_z_minus, bound_z));
+                float scaling_factor = 0.37f;
+
+                rtgo_tag.set_float3("render geometry*\\\\compression info*\\0\\position bounds 0*", new(bound_x_minus * scaling_factor, bound_x * scaling_factor, bound_y_minus * scaling_factor));
+                rtgo_tag.set_float3("render geometry*\\\\compression info*\\0\\position bounds 1*", new(bound_y * scaling_factor, bound_z_minus * scaling_factor, bound_z * scaling_factor));
 
                 // preprocess UV bounds
                 float uv_bound_x = 0.0f;
@@ -145,22 +185,29 @@ namespace Infinite_model_importer
                         var vert = mesh.Vertices[j];
 
 
-                        // start with vertex positions (8 bytes wide)
-                        // normalize & pack each vector
-                        float normalized_x = ((vert.X / highest_distance) + 1) / 2; 
-                        ushort packed_x = (ushort)(normalized_x * 0xffff);
-                        bw.Write(packed_x);
-                        float unpacked_x = (((float)(ushort)packed_x / 0xffff) * 2.0f) - 1.0f;
+                        ushort packedX = (ushort)(((vert.X - bound_x_minus) / (bound_x - bound_x_minus)) * 65535.0f);
+                        ushort packedY = (ushort)(((vert.Y - bound_y_minus) / (bound_y - bound_y_minus)) * 65535.0f);
+                        ushort packedZ = (ushort)(((vert.Z - bound_z_minus) / (bound_z - bound_z_minus)) * 65535.0f);
+                        bw.Write(packedX);
+                        bw.Write(packedY);
+                        bw.Write(packedZ);
 
-                        float normalized_y = ((vert.Y / highest_distance) + 1) / 2;
-                        ushort packed_y = (ushort)(normalized_y * 0xffff);
-                        bw.Write(packed_y);
-                        float unpacked_y = (((float)(ushort)packed_y / 0xffff) * 2.0f) - 1.0f;
+                        //// start with vertex positions (8 bytes wide)
+                        //// normalize & pack each vector
+                        //float normalized_x = ((vert.X / highest_distance) + 1) / 2; 
+                        //ushort packed_x = (ushort)(normalized_x * 0xffff);
+                        //bw.Write(packed_x);
+                        ////float unpacked_x = (((float)(ushort)packed_x / 0xffff) * 2.0f) - 1.0f;
 
-                        float normalized_z = ((vert.Z / highest_distance) + 1) / 2;
-                        ushort packed_z = (ushort)(normalized_z * 0xffff);
-                        bw.Write(packed_z);
-                        float unpacked_z = (((float)(ushort)packed_z / 0xffff) * 2.0f) - 1.0f;
+                        //float normalized_y = ((vert.Y / highest_distance) + 1) / 2;
+                        //ushort packed_y = (ushort)(normalized_y * 0xffff);
+                        //bw.Write(packed_y);
+                        ////float unpacked_y = (((float)(ushort)packed_y / 0xffff) * 2.0f) - 1.0f;
+
+                        //float normalized_z = ((vert.Z / highest_distance) + 1) / 2;
+                        //ushort packed_z = (ushort)(normalized_z * 0xffff);
+                        //bw.Write(packed_z);
+                        //float unpacked_z = (((float)(ushort)packed_z / 0xffff) * 2.0f) - 1.0f;
                         bw.Write(new byte[2] {0,0}); // pad out the last guy?
 
                         // UV0s (4 bytes wide)
@@ -180,7 +227,10 @@ namespace Infinite_model_importer
                             var normal = mesh.Normals[j];
                             // we have to pack this all into a single int to write
                             // make sure the normals work how we think they work
-                            if (normal.X > 1.0f || normal.X < -1.0f || normal.Y > 1.0f || normal.Y < -1.0f || normal.Z > 1.0f || normal.Z < -1.0f) throw new Exception("out of bounds normal value?");
+                            normal.X = Math.Clamp(normal.X, -1.0f, 1.0f);
+                            normal.Y = Math.Clamp(normal.Y, -1.0f, 1.0f);
+                            normal.Z = Math.Clamp(normal.Z, -1.0f, 1.0f);
+
                             ushort normal_packed_x = (ushort)(((normal.X + 1.0f) / 2.0f) * 0x3FF); // uhh i think the conversion will be fine here
                             ushort normal_packed_y = (ushort)(((normal.Y + 1.0f) / 2.0f) * 0x3FF);
                             ushort normal_packed_z = (ushort)(((normal.Z + 1.0f) / 2.0f) * 0x3FF);
@@ -194,27 +244,41 @@ namespace Infinite_model_importer
                         else bw.Write(0u);
 
                         // tangents (4 bytes wide)
-                        //if (!invalid_tangents){
-                        //    var tangent = mesh.Tangents[j];
-                        //    // make sure tangents work how we think they work
-                        //    if (tangent.X > 1.0f || tangent.X < -1.0f || tangent.Y > 1.0f || tangent.Y < -1.0f || tangent.Z > 1.0f || tangent.Z < -1.0f) throw new Exception("out of bounds normal value?");
-                        //    bw.Write((byte)(((tangent.X + 1.0f) / 2.0f) * 0xFF));
-                        //    bw.Write((byte)(((tangent.Y + 1.0f) / 2.0f) * 0xFF));
-                        //    bw.Write((byte)(((tangent.Z + 1.0f) / 2.0f) * 0xFF));
-                        //}
-                        //else 
-                            bw.Write(0u);
+                        if (!invalid_tangents){
+                            var tangent = mesh.Tangents[j];
+
+                            // copy & pasted normals logic
+                            tangent.X = Math.Clamp(tangent.X, -1.0f, 1.0f);
+                            tangent.Y = Math.Clamp(tangent.Y, -1.0f, 1.0f);
+                            tangent.Z = Math.Clamp(tangent.Z, -1.0f, 1.0f);
+
+                            ushort tangent_packed_x = (ushort)(((tangent.X + 1.0f) / 2.0f) * 0x3FF);
+                            ushort tangent_packed_y = (ushort)(((tangent.Y + 1.0f) / 2.0f) * 0x3FF);
+                            ushort tangent_packed_z = (ushort)(((tangent.Z + 1.0f) / 2.0f) * 0x3FF);
+
+                            uint packed = ((uint)tangent_packed_x & 0x3ff) | (((uint)tangent_packed_y & 0x3ff) << 10) | (((uint)tangent_packed_z & 0x3ff) << 20);
+                            bw.Write(packed);
+                        }
+                        else bw.Write(0u);
+
+                        if (has_bone_weighting){
+                            byte index = (byte)vertexWeightCounts[j];
+                            bw.Write(index | index << 8 | index << 16 | index << 24);
+                        }
 
                         // bytecolors (4 bytes wide)
-                        //if (!invalid_colors) { 
-                        //    var color = mesh.VertexColorChannels[0][j];
-                        //    bw.Write((byte)(color.A * 255));
-                        //    bw.Write((byte)(color.R * 255));
-                        //    bw.Write((byte)(color.G * 255));
-                        //    bw.Write((byte)(color.B * 255));
-                        //}
-                        //else 
-                            bw.Write(4278190080u);
+                        if (!invalid_colors){
+                            var color = mesh.VertexColorChannels[0][j];
+                            bw.Write((byte)(color.A * 255));
+                            bw.Write((byte)(color.R * 255));
+                            bw.Write((byte)(color.G * 255));
+                            bw.Write((byte)(color.B * 255));
+                        }
+                        else bw.Write(4278190080u);
+
+
+
+
 
                     }
                     byte[] data = stream.ToArray();
