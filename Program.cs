@@ -1,6 +1,5 @@
 ﻿using Assimp;
-using Infinite_module_test;
-using static Infinite_module_test.tag_structs;
+using TagFramework.Src.TagFiles;
 using static System.Net.Mime.MediaTypeNames;
 
 namespace Infinite_model_importer
@@ -21,14 +20,14 @@ namespace Infinite_model_importer
             //                     false,
             //                     "C:\\Users\\ct770\\Downloads\\tag testing\\result_tag");
 
-            convert_model_to_tag("C:\\Users\\ct770\\Downloads\\tag testing\\h1magnum\\UNSC Weapons.fbx",
+            convert_model_to_tag("C:\\Users\\ct770\\Downloads\\tag testing\\h1magnum\\UNSC Weapons2.fbx",
                      "C:\\Users\\ct770\\Downloads\\tag testing\\h1magnum\\h1magnum",
                      "C:\\Users\\ct770\\Downloads\\tag testing\\h1magnum\\h1magnum_res_0",
                      true,
                      "C:\\Users\\ct770\\Downloads\\tag testing\\h1magnum\\result_magnum_tag");
         }
 
-        static tag load_tag(string file, string res_template)
+        static Tag load_tag(string file, string res_template)
         {
             if (!File.Exists(file)) throw new Exception("file does not exist");
             if (!File.Exists(res_template)) throw new Exception("res_template does not exist");
@@ -37,13 +36,13 @@ namespace Infinite_model_importer
 
             var testing = new List<KeyValuePair<byte[], bool>>();
             testing.Add(new (res_bytes, true));
-            tag test = new tag(testing); // apparently we do NOT support null, despite declaring it as nullable (this is for compiling at least)
+            Tag test = new Tag(testing); // apparently we do NOT support null, despite declaring it as nullable (this is for compiling at least)
             if (!test.Load_tag_file(file_bytes)) throw new Exception("failed to load tag");
             return test;
         }
         static void convert_model_to_tag(string input_model_path, string input_template_tag, string input_res_tag, bool has_bone_weighting, string output_tag_path){
             // load the template tag
-            tag rtgo_tag = load_tag(input_template_tag, input_res_tag);
+            Tag rtgo_tag = load_tag(input_template_tag, input_res_tag);
             //rtgo_tag.set_tagID(new_tagid); // we have to update the tagID, as we're going to have the template set to -1
 
 
@@ -127,13 +126,7 @@ namespace Infinite_model_importer
                 float bound_y_minus = 0.0f;
                 float bound_z = 0.0f;
                 float bound_z_minus = 0.0f;
-
-                float highest_distance = 0.0f;
                 foreach(var v in mesh.Vertices){
-                    if (Math.Abs(v.X) > highest_distance) highest_distance = Math.Abs(v.X);
-                    if (Math.Abs(v.Y) > highest_distance) highest_distance = Math.Abs(v.Y);
-                    if (Math.Abs(v.Z) > highest_distance) highest_distance = Math.Abs(v.Z);
-
                     if (v.X > bound_x)       bound_x = v.X;
                     if (v.X < bound_x_minus) bound_x_minus = v.X;
                     if (v.Y > bound_y)       bound_y = v.Y;
@@ -155,25 +148,16 @@ namespace Infinite_model_importer
                 float uv_bound_x_minus = 0.0f;
                 float uv_bound_y = 0.0f;
                 float uv_bound_y_minus = 0.0f;
-                float uv_bound_z = 0.0f;
-                float uv_bound_z_minus = 0.0f;
-
-                float highest_uv0_distance = 0.0f;
                 // most amount of UV channels is 3 i believe // even though we're just going to support the first channel
                 if (mesh.TextureCoordinateChannelCount > 3) throw new Exception("exceeded maximum supported UV channels count! we can still process the first 3 however");
                 foreach (var v in mesh.TextureCoordinateChannels[0]){
-                    if (Math.Abs(v.X) > highest_uv0_distance) highest_uv0_distance = Math.Abs(v.X);
-                    if (Math.Abs(v.Y) > highest_uv0_distance) highest_uv0_distance = Math.Abs(v.Y);
-
                     if (v.X > uv_bound_x)       uv_bound_x = v.X;
                     if (v.X < uv_bound_x_minus) uv_bound_x_minus = v.X;
                     if (v.Y > uv_bound_y)       uv_bound_y = v.Y;
                     if (v.Y < uv_bound_y_minus) uv_bound_y_minus = v.Y;
-                    //if (v.Z > uv_bound_z)       uv_bound_z = v.Z;
-                    //if (v.Z < uv_bound_z_minus) uv_bound_z_minus = v.Z;
                 }
 
-                rtgo_tag.set_float2("render geometry*\\\\compression info*\\0\\texcoord bounds 0*", new(uv_bound_x, uv_bound_x_minus));
+                rtgo_tag.set_float2("render geometry*\\\\compression info*\\0\\texcoord bounds 0*", new(uv_bound_x_minus, uv_bound_x));
                 rtgo_tag.set_float2("render geometry*\\\\compression info*\\0\\texcoord bounds 1*", new(uv_bound_y, uv_bound_y_minus));
 
                 // now we need to start compiling the tag
@@ -191,34 +175,16 @@ namespace Infinite_model_importer
                         bw.Write(packedX);
                         bw.Write(packedY);
                         bw.Write(packedZ);
-
-                        //// start with vertex positions (8 bytes wide)
-                        //// normalize & pack each vector
-                        //float normalized_x = ((vert.X / highest_distance) + 1) / 2; 
-                        //ushort packed_x = (ushort)(normalized_x * 0xffff);
-                        //bw.Write(packed_x);
-                        ////float unpacked_x = (((float)(ushort)packed_x / 0xffff) * 2.0f) - 1.0f;
-
-                        //float normalized_y = ((vert.Y / highest_distance) + 1) / 2;
-                        //ushort packed_y = (ushort)(normalized_y * 0xffff);
-                        //bw.Write(packed_y);
-                        ////float unpacked_y = (((float)(ushort)packed_y / 0xffff) * 2.0f) - 1.0f;
-
-                        //float normalized_z = ((vert.Z / highest_distance) + 1) / 2;
-                        //ushort packed_z = (ushort)(normalized_z * 0xffff);
-                        //bw.Write(packed_z);
-                        //float unpacked_z = (((float)(ushort)packed_z / 0xffff) * 2.0f) - 1.0f;
                         bw.Write(new byte[2] {0,0}); // pad out the last guy?
 
                         // UV0s (4 bytes wide)
                         if (!invalid_UV0){
                             var uv = mesh.TextureCoordinateChannels[0][j];
-                            // normalize & pack each vector // NOTE: we may have to prevent the endianness flipping when writing the bytes?
-                            float uv_normalized_x = ((uv.X / highest_uv0_distance) + 1) / 2;
-                            bw.Write((short)(uv_normalized_x * 0xffff));
-
-                            float uv_normalized_y = ((uv.Y / highest_uv0_distance) + 1) / 2;
-                            bw.Write((short)(uv_normalized_y * 0xffff));
+                            // pack into 16 bits each
+                            ushort uv_packedX = (ushort)(((uv.X - uv_bound_x_minus) / (uv_bound_x - uv_bound_x_minus)) * 65535.0f);
+                            ushort uv_packedY = (ushort)(((uv.Y - uv_bound_y_minus) / (uv_bound_y - uv_bound_y_minus)) * 65535.0f);
+                            bw.Write(uv_packedX);
+                            bw.Write(uv_packedY);
                         }
                         else bw.Write(0u);
 
@@ -300,7 +266,7 @@ namespace Infinite_model_importer
                     rtgo_tag.set_datablock("render geometry*\\\\mesh package*!\\\\mesh resource groups*!\\0\\mesh resource!*\\\\pc index buffers*\\0\\d3dbuffer*\\\\d3d buffer*", data);
                 }
 
-                tag.compiled_tag output = rtgo_tag.compile();
+                Tag.compiled_tag output = rtgo_tag.compile();
                 // we aren't going to output resources with this, so we only need to worry about spitting out the main file
                 File.WriteAllBytes(output_tag_path, output.tag_bytes);
                 for (int j = 0; j < output.resource_bytes.Count; j++)
